@@ -20,12 +20,6 @@ import android.content.Context;
 import android.content.res.TypedArray;
 import android.graphics.Canvas;
 import android.graphics.Typeface;
-import android.support.annotation.ColorInt;
-import android.support.annotation.NonNull;
-import android.support.annotation.Nullable;
-import android.support.v7.widget.GridLayoutManager;
-import android.support.v7.widget.LinearLayoutManager;
-import android.support.v7.widget.RecyclerView;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.util.SparseIntArray;
@@ -35,6 +29,13 @@ import android.view.View;
 import com.simplecityapps.recyclerview_fastscroll.R;
 import com.simplecityapps.recyclerview_fastscroll.interfaces.OnFastScrollStateChangeListener;
 import com.simplecityapps.recyclerview_fastscroll.utils.Utils;
+
+import androidx.annotation.ColorInt;
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.LinearLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
 
 public class FastScrollRecyclerView extends RecyclerView implements RecyclerView.OnItemTouchListener {
 
@@ -126,12 +127,12 @@ public class FastScrollRecyclerView extends RecyclerView implements RecyclerView
      * scroll bar.  Otherwise, we fall back to the default RecyclerView touch handling.
      */
     @Override
-    public boolean onInterceptTouchEvent(RecyclerView rv, MotionEvent ev) {
+    public boolean onInterceptTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent ev) {
         return handleTouchEvent(ev);
     }
 
     @Override
-    public void onTouchEvent(RecyclerView rv, MotionEvent ev) {
+    public void onTouchEvent(@NonNull RecyclerView rv, @NonNull MotionEvent ev) {
         handleTouchEvent(ev);
     }
 
@@ -184,7 +185,7 @@ public class FastScrollRecyclerView extends RecyclerView implements RecyclerView
      * AvailableScrollBarHeight = Total height of the visible view - thumb height
      */
     protected int getAvailableScrollBarHeight() {
-        int visibleHeight = getHeight();
+        int visibleHeight = getHeight() - getPaddingTop() - getPaddingBottom();
         return visibleHeight - mScrollbar.getThumbHeight();
     }
 
@@ -229,9 +230,14 @@ public class FastScrollRecyclerView extends RecyclerView implements RecyclerView
         // Calculate the current scroll position, the scrollY of the recycler view accounts for the
         // view padding, while the scrollBarY is drawn right up to the background padding (ignoring
         // padding)
-        int scrollY = Math.min(availableScrollHeight, getPaddingTop() + scrolledPastHeight - scrollPosState.rowTopOffset);
+        int scrollY = Math.min(availableScrollHeight, getPaddingTop() + scrolledPastHeight);
 
         int scrollBarY = (int) (((float) scrollY / availableScrollHeight) * availableScrollBarHeight);
+        if (isLayoutManagerReversed()) {
+            scrollBarY = availableScrollBarHeight - scrollBarY + getPaddingBottom();
+        } else {
+            scrollBarY += getPaddingTop();
+        }
 
         // Calculate the position and size of the scroll bar
         int scrollBarX;
@@ -277,7 +283,7 @@ public class FastScrollRecyclerView extends RecyclerView implements RecyclerView
             scrollOffset = calculateScrollDistanceToPosition(scrollPosition) - passedHeight;
         } else {
             itemPos = findItemPosition(touchFraction);
-            availableScrollHeight = getAvailableScrollHeight(calculateAdapterHeight(), 0);
+            availableScrollHeight = getAvailableScrollHeight(rowCount * mScrollPosState.rowHeight, 0);
 
             //The exact position of our desired item
             int exactItemPos = (int) (availableScrollHeight * touchFraction);
@@ -305,10 +311,10 @@ public class FastScrollRecyclerView extends RecyclerView implements RecyclerView
     @SuppressWarnings("unchecked")
     private int findMeasureAdapterFirstVisiblePosition(int passedHeight) {
         if (getAdapter() instanceof MeasurableAdapter) {
-            MeasurableAdapter measurer = (MeasurableAdapter) getAdapter();
+            MeasurableAdapter measurableAdapter = (MeasurableAdapter) getAdapter();
             for (int i = 0; i < getAdapter().getItemCount(); i++) {
                 int top = calculateScrollDistanceToPosition(i);
-                int bottom = top + measurer.getViewTypeHeight(this, findViewHolderForAdapterPosition(i), getAdapter().getItemViewType(i));
+                int bottom = top + measurableAdapter.getViewTypeHeight(this, findViewHolderForAdapterPosition(i), getAdapter().getItemViewType(i));
                 if (i == getAdapter().getItemCount() - 1) {
                     if (passedHeight >= top && passedHeight <= bottom) {
                         return i;
@@ -321,9 +327,8 @@ public class FastScrollRecyclerView extends RecyclerView implements RecyclerView
             }
             int low = calculateScrollDistanceToPosition(0);
             int height = calculateScrollDistanceToPosition(getAdapter().getItemCount() - 1)
-                    + measurer.getViewTypeHeight(this, findViewHolderForAdapterPosition(getAdapter().getItemCount() - 1), getAdapter().getItemViewType(getAdapter().getItemCount() - 1));
-            ;
-            throw new IllegalStateException(String.format("Invalid passed height:%d,[low:%d,height:%d]", passedHeight, low, height));
+                    + measurableAdapter.getViewTypeHeight(this, findViewHolderForAdapterPosition(getAdapter().getItemCount() - 1), getAdapter().getItemViewType(getAdapter().getItemCount() - 1));
+            throw new IllegalStateException(String.format("Invalid passed height: %d, [low: %d, height: %d]", passedHeight, low, height));
         } else {
             throw new IllegalStateException("findMeasureAdapterFirstVisiblePosition() should only be called where the RecyclerView.Adapter is an instance of MeasurableAdapter");
         }
@@ -387,6 +392,13 @@ public class FastScrollRecyclerView extends RecyclerView implements RecyclerView
         }
 
         updateThumbPosition(mScrollPosState, rowCount);
+    }
+
+    protected boolean isLayoutManagerReversed() {
+        if (getLayoutManager() instanceof LinearLayoutManager) {
+            return ((LinearLayoutManager) getLayoutManager()).getReverseLayout();
+        }
+        return false;
     }
 
     /**
@@ -535,11 +547,11 @@ public class FastScrollRecyclerView extends RecyclerView implements RecyclerView
     }
 
     /**
-     * Set the FastScroll Popup position. This is either {@link FastScroller.FastScrollerPopupPosition#ADJACENT},
-     * meaning the popup moves adjacent to the FastScroll thumb, or {@link FastScroller.FastScrollerPopupPosition#CENTER},
+     * Set the FastScroll Popup position. This is either {@link FastScroller.PopupPosition#ADJACENT},
+     * meaning the popup moves adjacent to the FastScroll thumb, or {@link FastScroller.PopupPosition#CENTER},
      * meaning the popup is static and centered within the RecyclerView.
      */
-    public void setPopupPosition(@FastScroller.FastScrollerPopupPosition int popupPosition) {
+    public void setPopupPosition(@FastScroller.PopupPosition int popupPosition) {
         mScrollbar.setPopupPosition(popupPosition);
     }
 
